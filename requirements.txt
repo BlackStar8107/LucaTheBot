@@ -1,0 +1,6 @@
+asyncio
+aiohttp
+aiosqlite
+disnake
+beautifulsoup4
+lxml
