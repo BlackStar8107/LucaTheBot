@@ -17,7 +17,7 @@ CHANNELS_TO_CHECK = {
 WEBHOOK_URL = "https://discord.com/api/webhooks/1387383536025206916/VP4SFoGa6jyjl3kqWkLFuCS2qMfzcY0tALuqe81wOJBb1C_ikApz2yJ928OzEWTyeSTi"
 
 BOT_NAME = "LucaTheBot"
-BOT_IMAGE = ""
+BOT_IMAGE = "https://cdn.discordapp.com/icons/656070244321984532/fcfd0a039781de6bd1db261d3cb8b225.webp?size=80&quality=lossless"
 
 # Please use '{}' where you want the values to go
 # You can use a number in the brackets to change the order
