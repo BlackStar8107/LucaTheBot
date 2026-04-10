@@ -1,4 +1,4 @@
-import asyncio, aiohttp, aiosqlite, datetime
+import asyncio, aiohttp, aiosqlite, datetime, os
 from disnake import Webhook
 from bs4 import BeautifulSoup
 
@@ -14,7 +14,7 @@ CHANNELS_TO_CHECK = {
     "LucaTheShopkeeper" : "UCdTTM2b7ofMIpauCby6CImw"
 }
 
-WEBHOOK_URL = "https://discord.com/api/webhooks/1387383536025206916/VP4SFoGa6jyjl3kqWkLFuCS2qMfzcY0tALuqe81wOJBb1C_ikApz2yJ928OzEWTyeSTi"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 BOT_NAME = "LucaTheBot"
 BOT_IMAGE = "https://cdn.discordapp.com/icons/656070244321984532/fcfd0a039781de6bd1db261d3cb8b225.webp?size=80&quality=lossless"
