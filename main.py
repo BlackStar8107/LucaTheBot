@@ -1,112 +1,171 @@
-import asyncio, aiohttp, aiosqlite, datetime, os
+import asyncio, logging, datetime, xmltodict, os
+from aiohttp import web, ClientSession
+from dotenv import load_dotenv
+from pyngrok import ngrok
 from disnake import Webhook
-from bs4 import BeautifulSoup
 
-#####################
-# Main Bot Settings #
-#####################
 
-# The Name Is Not Actually Used
-# I found it easier to keep track
+logger = logging.getLogger(__name__)
 
-CHANNELS_TO_CHECK = {
+CHANNELS = {
     "LucaTheGuide" : "UC0zrazFd2Qx6iSODhr3tkqw",
     "LucaTheShopkeeper" : "UCdTTM2b7ofMIpauCby6CImw"
 }
 
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
 BOT_NAME = "LucaTheBot"
 BOT_IMAGE = "https://cdn.discordapp.com/icons/656070244321984532/fcfd0a039781de6bd1db261d3cb8b225.webp?size=80&quality=lossless"
 
-# Please use '{}' where you want the values to go
-# You can use a number in the brackets to change the order
-# For example '{1}' would be the title
-# They are in the order below:
-# 0: Youtuber Name
-# 1: Title
-# 2: Link
-# 3: Date
 
-BOT_MESSAGE = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}"
+def log(message, level):
+    match level:
+        case logging.DEBUG:
+            print(datetime.datetime.now(), "|| DEBUG || ", message)
+            logger.debug(message)
 
-#####################
+        case logging.INFO:
+            print(datetime.datetime.now(), "|| INFO || ", message)
+            logger.info(message)
 
-LAST_YEAR = datetime.datetime.now().year - 1
+        case logging.WARNING:
+            print(datetime.datetime.now(), "|| WARNING || ", message)
+            logger.warning(message)
+
+        case logging.ERROR:
+            print(datetime.datetime.now(), "|| ERROR || ", message)
+            logger.error(message)
+
+        case logging.CRITICAL:
+            print(datetime.datetime.now(), "|| CRITICAL || ", message)
+            logger.critical(message)
+
+async def check_webhook():
+    async with ClientSession() as session:
+        webhook = Webhook.from_url(os.getenv("WEBHOOK_URL"), session = session)
+        await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format("channel_name", "title", "video_url", "date_published"), username = BOT_NAME, avatar_url = BOT_IMAGE)
 
 def main():
     if __name__ == "__main__":
+        with open("LucaTheLog.log", "w"):
+            pass
+        logging.basicConfig(filename="LucaTheLog.log", level=logging.DEBUG, format="%(asctime)s || %(levelname)s || %(message)s")
+
+        log("Logging Started", logging.INFO)
+
+        log("Loading DotEnv", logging.INFO)
+
+        load_dotenv()
+
+        log("Loaded DotEnv", logging.INFO)
+
+        log("Connecting To ngrok", logging.INFO)
+
+        try:
+            tunnel = ngrok.connect(addr="8080", )
+            log("Connected To ngrok", logging.INFO)
+        except Exception as E:
+            log(E, logging.DEBUG)
+            log("Failed To Connect To ngrok!", logging.CRITICAL)
+            raise(E)
+        
+        handler = NewVideoHandler(tunnel)
         m_loop = asyncio.get_event_loop()
-        m_loop.run_until_complete(check_channel())
+        m_loop.run_until_complete(handler.server())
         m_loop.run_forever()
 
-async def connect_to_db():
-    return await aiosqlite.connect("LucaTheDatabase.db")
+    else:
+        exit()
 
-async def start_webhook(title, link, name, date):
-    async with aiohttp.ClientSession() as session:
+class NewVideoHandler():
+    
+    def __init__(self, tunnel):
+        self.memory = set()
+        self.tunnel_url = tunnel.public_url
+        self.first_run = 1
 
-        webhook = Webhook.from_url(WEBHOOK_URL, session = session)
+    async def subscribe(self, channel_id):
+        async with ClientSession() as session:
+            payload = {
+                "hub.callback" : self.tunnel_url,
+                "hub.mode" : "subscribe",
+                "hub.topic" : f'https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_id}',
+                "hub.lease_seconds" : "",
+                "hub.secret" : "",
+                "hub.verify" : "async",
+                "hub.verify_token" : "",
+            }
+            async with session.post("https://pubsubhubbub.appspot.com/subscribe", data=payload) as resp:
+                if resp.status == 202:
+                    log("Subscribe Request Sent", logging.INFO)
+                else:
+                    log("Failed To Subscribe", logging.CRITICAL)
 
-        await webhook.send(content = BOT_MESSAGE.format(name, title, link, date), username = BOT_NAME, avatar_url = BOT_IMAGE)
+    def __unload(self):
+        # FOR THE LOVE OF LUCA
+        # DO *NOT* REMOVE THIS
+        # IT WILL JUST KEEP RUNNING
+        asyncio.ensure_future(self.site.stop())
 
-        await asyncio.sleep(3)
+    async def server(self):
 
-        db = await connect_to_db()
+        if self.first_run:
+            if True:
+                await check_webhook()
+            self.first_run = 0
 
-        pointer = await db.execute("INSERT INTO Videos VALUES (?, ?, ?, ?)", (title, link, name, date))
+        route = web.RouteTableDef()
 
-        print(f"LOG || Added new video to Database > {title, link}")
+        @route.get("/")
+        async def auth(req):
+            if "hub.challenge" in req.query:
+                log("Authenticated", logging.INFO)
+                response = req.query.get("hub.challenge")
+                return web.Response(text=response, status=200)
+            else:
+                log("Authentication Failed", logging.WARNING)
+                return web.Response(status=404)
+        
+        @route.post("/")
+        async def receive(req):
+            if req.content_type != "application/atom+xml":
+                log("Incoming Data Incorrect Type!", logging.WARNING)
+                return web.Response(status=400)
+            else:
+                log("Data Recieved", logging.INFO)
+                content = await req.content.read(n=-1)
+                log("Parsing Data", logging.INFO)
+                data = xmltodict.parse(content, "UTF-8")
 
-        await db.commit()
+                if "entry" in data["feed"] and data["feed"]["entry"]["yt:videoId"] not in self.memory:
+                    entry = data["feed"]["entry"]
 
-        await pointer.close()
+                    self.memory.add(entry["yt:videoId"])
 
-        await db.close()
+                    log("Data Added To Memory", logging.INFO)
 
+                    video_data = {
+                        'title': entry['title'],
+                        'video_url': entry['link']['@href'],
+                        'channel_name': entry['author']['name'],
+                        'channel_url': entry['author']['uri'],
+                        'date_published': entry['published'],
+                        'video_id': entry['yt:videoId']
+				    }
 
-async def check_channel():
-    while True:
-        for channel_id in CHANNELS_TO_CHECK:
-            async with aiohttp.ClientSession() as session:
-                await asyncio.sleep(18)
-                async with session.get(f"https://www.youtube.com/feeds/videos.xml?channel_id={CHANNELS_TO_CHECK[channel_id]}") as response:
-                    response_soup = BeautifulSoup(await response.text(), "lxml")
+                    async with ClientSession() as session:
+                        webhook = Webhook.from_url(os.getenv("WEBHOOK_URL"), session = session)
+                        await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format(video_data["channel_name"], video_data["title"], video_data["video_url"], video_data["date_published"]), username = BOT_NAME, avatar_url = BOT_IMAGE)
+                else:
+                    log("Data Already In Memory!", logging.INFO)
+                return web.Response(status=200)
+        
+        app = web.Application()
+        app.add_routes(route)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        self.site = web.TCPSite(runner, "127.0.0.1", "8080")
+        await self.site.start()
+        for channel in CHANNELS:
+            await self.subscribe(channel)
 
-                    for video in response_soup.find_all("entry"):
-                        for title in video.find_all("title"):
-                            title = title.text
-                        
-                        for link in video.find_all("link"):
-                            link = link['href']
-
-                        for name in video.find_all("name"):
-                            name = name.text
-
-                        for date in video.find_all("published"):
-                            date = date.text[:10]
-
-                        db = await connect_to_db()
-
-                        pointer = await db.execute("CREATE TABLE IF NOT EXISTS Videos(title, link, name, date)")
-                        await db.commit()
-                        await pointer.close()
-
-                        video_check = await db.execute(f"SELECT * FROM Videos WHERE title = ?", (title,))
-                        videos_fetched = await video_check.fetchall()
-
-                        if len(videos_fetched) < 1:
-                            vid_date = datetime.datetime.strptime(date, "%Y-%m-%d")
-                            yesterday = (datetime.datetime.now() - datetime.timedelta(days=1))
-
-                            # We want to post videos from yesterday or newer
-                            if vid_date >= yesterday:
-                                await start_webhook(title, link, name, date)
-                            else:
-                                old_vid = await db.execute("INSERT INTO Videos VALUES (?, ?, ?, ?)", (title, link, name, date))
-                                await db.commit()
-                                await old_vid.close()
-                            await video_check.close()
-                            await db.close()
 
 main()

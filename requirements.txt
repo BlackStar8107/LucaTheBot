@@ -1,6 +1,6 @@
 asyncio
+xmltodict
 aiohttp
-aiosqlite
+dotenv
+pyngrok
 disnake
-beautifulsoup4
-lxml
