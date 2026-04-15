@@ -4,3 +4,4 @@ aiohttp
 dotenv
 pyngrok
 disnake
+aiosqlite

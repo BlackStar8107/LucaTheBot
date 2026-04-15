@@ -1,4 +1,4 @@
-import asyncio, logging, datetime, xmltodict, os
+import asyncio, logging, datetime, xmltodict, os, aiosqlite
 from aiohttp import web, ClientSession
 from dotenv import load_dotenv
 from pyngrok import ngrok
@@ -9,11 +9,13 @@ logger = logging.getLogger(__name__)
 
 CHANNELS = {
     "LucaTheShopkeeper" : "UCdTTM2b7ofMIpauCby6CImw",
-    "LucaTheGuide" : "UC0zrazFd2Qx6iSODhr3tkqw"
+    "LucaTheGuide" : "UC0zrazFd2Qx6iSODhr3tkqw",
+    "FoxGaming" : "UCim-6_qUEk5Ft91Vf5oceCA"
 }
 
 BOT_NAME = "LucaTheBot"
 BOT_IMAGE = "https://cdn.discordapp.com/icons/656070244321984532/fcfd0a039781de6bd1db261d3cb8b225.webp?size=80&quality=lossless"
+USE_LOCAL_DB = True
 
 
 def log(message, level):
@@ -78,7 +80,13 @@ def main():
 class NewVideoHandler():
     
     def __init__(self, tunnel):
-        self.memory = set()
+        if USE_LOCAL_DB:
+            # self.db = None
+            # self.connect_to_db()
+            log("Connected To Local DB", logging.INFO)
+        else:
+            self.memory = set()
+            log("Using RAM", logging.INFO)
         self.tunnel_url = tunnel.public_url
         self.first_run = 1
 
@@ -87,7 +95,7 @@ class NewVideoHandler():
             payload = {
                 "hub.callback" : self.tunnel_url,
                 "hub.mode" : "subscribe",
-                "hub.topic" : f'https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_id}',
+                "hub.topic" : f"https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_id}",
                 "hub.lease_numbers" : "",
                 "hub.secret" : "",
                 "hub.verify" : "async",
@@ -104,6 +112,13 @@ class NewVideoHandler():
         # DO *NOT* REMOVE THIS
         # IT WILL JUST KEEP RUNNING
         asyncio.ensure_future(self.site.stop())
+
+    async def connect_to_db(self):
+        db = await aiosqlite.connect("LucaTheDatabase.db")
+        self.db = db
+        pointer = await self.db.execute("CREATE TABLE IF NOT EXISTS Videos(id, title, link, name, date)")
+        await self.db.commit()
+        await pointer.close()
 
     async def server(self):
 
@@ -132,30 +147,60 @@ class NewVideoHandler():
             else:
                 log("Data Recieved", logging.INFO)
                 content = await req.content.read(n=-1)
+                log(content, logging.DEBUG)
                 log("Parsing Data", logging.INFO)
                 data = xmltodict.parse(content, "UTF-8")
+                log(data, logging.DEBUG)
 
-                if "entry" in data["feed"] and data["feed"]["entry"]["yt:videoId"] not in self.memory:
-                    entry = data["feed"]["entry"]
+                if USE_LOCAL_DB:
+                    await self.connect_to_db()
+                    check_vid = await self.db.execute(f"SELECT * FROM Videos WHERE id = ?", (data["feed"]["entry"]["yt:videoId"],))
+                    vid_result = await check_vid.fetchall()
+                    if "entry" in data["feed"] and len(vid_result) < 1:
+                        entry = data["feed"]["entry"]
 
-                    self.memory.add(entry["yt:videoId"])
+                        video_data = {
+                            "id": entry["yt:videoId"],
+                            "title": entry["title"],
+                            "video_url": entry["link"]["@href"],
+                            "channel_name": entry["author"]["name"],
+                            "channel_url": entry["author"]["uri"],
+                            "date_published": entry["published"]
+                        }
 
-                    log("Data Added To Memory", logging.INFO)
+                        # self.memory.add(entry["yt:videoId"])
+                        await self.db.execute("INSERT INTO Videos VALUES (?, ?, ?, ?, ?)", (video_data["id"], video_data["title"], video_data["video_url"], video_data["channel_name"], video_data["date_published"]))
+                        await self.db.commit()
 
-                    video_data = {
-                        'title': entry['title'],
-                        'video_url': entry['link']['@href'],
-                        'channel_name': entry['author']['name'],
-                        'channel_url': entry['author']['uri'],
-                        'date_published': entry['published'],
-                        'video_id': entry['yt:videoId']
-				    }
+                        log("Data Added To Database", logging.INFO)
 
-                    async with ClientSession() as session:
-                        webhook = Webhook.from_url(os.getenv("WEBHOOK_URL"), session = session)
-                        await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format(video_data["channel_name"], video_data["title"], video_data["video_url"], video_data["date_published"]), username = BOT_NAME, avatar_url = BOT_IMAGE)
+                        async with ClientSession() as session:
+                            webhook = Webhook.from_url(os.getenv("WEBHOOK_URL"), session = session)
+                            await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format(video_data["channel_name"], video_data["title"], video_data["video_url"], video_data["date_published"]), username = BOT_NAME, avatar_url = BOT_IMAGE)
+                    else:
+                        log("Data Already In Database!", logging.INFO)
                 else:
-                    log("Data Already In Memory!", logging.INFO)
+                    if "entry" in data["feed"] and data["feed"]["entry"]["yt:videoId"] not in self.memory:
+                        entry = data["feed"]["entry"]
+
+                        self.memory.add(entry["yt:videoId"])
+
+                        log("Data Added To Memory", logging.INFO)
+
+                        video_data = {
+                            "title": entry["title"],
+                            "video_url": entry["link"]["@href"],
+                            "channel_name": entry["author"]["name"],
+                            "channel_url": entry["author"]["uri"],
+                            "date_published": entry["published"],
+                            "video_id": entry["yt:videoId"]
+                        }
+
+                        async with ClientSession() as session:
+                            webhook = Webhook.from_url(os.getenv("WEBHOOK_URL"), session = session)
+                            await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format(video_data["channel_name"], video_data["title"], video_data["video_url"], video_data["date_published"]), username = BOT_NAME, avatar_url = BOT_IMAGE)
+                    else:
+                        log("Data Already In Memory!", logging.INFO)
                 return web.Response(status=200)
         
         app = web.Application(logger=logger)
