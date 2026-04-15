@@ -8,8 +8,8 @@ from disnake import Webhook
 logger = logging.getLogger(__name__)
 
 CHANNELS = {
-    "LucaTheGuide" : "UC0zrazFd2Qx6iSODhr3tkqw",
-    "LucaTheShopkeeper" : "UCdTTM2b7ofMIpauCby6CImw"
+    "LucaTheShopkeeper" : "UCdTTM2b7ofMIpauCby6CImw",
+    "LucaTheGuide" : "UC0zrazFd2Qx6iSODhr3tkqw"
 }
 
 BOT_NAME = "LucaTheBot"
@@ -60,7 +60,7 @@ def main():
         log("Connecting To ngrok", logging.INFO)
 
         try:
-            tunnel = ngrok.connect(addr="8080", )
+            tunnel = ngrok.connect(addr="localhost:8080")
             log("Connected To ngrok", logging.INFO)
         except Exception as E:
             log(E, logging.DEBUG)
@@ -88,7 +88,7 @@ class NewVideoHandler():
                 "hub.callback" : self.tunnel_url,
                 "hub.mode" : "subscribe",
                 "hub.topic" : f'https://www.youtube.com/xml/feeds/videos.xml?channel_id={channel_id}',
-                "hub.lease_seconds" : "",
+                "hub.lease_numbers" : "",
                 "hub.secret" : "",
                 "hub.verify" : "async",
                 "hub.verify_token" : "",
@@ -108,7 +108,7 @@ class NewVideoHandler():
     async def server(self):
 
         if self.first_run:
-            if True:
+            if False:
                 await check_webhook()
             self.first_run = 0
 
@@ -158,14 +158,20 @@ class NewVideoHandler():
                     log("Data Already In Memory!", logging.INFO)
                 return web.Response(status=200)
         
-        app = web.Application()
+        app = web.Application(logger=logger)
+        log("Created Web Application", logging.INFO)
+
         app.add_routes(route)
+        log("Added Routes To Web Application", logging.INFO)
         runner = web.AppRunner(app)
         await runner.setup()
-        self.site = web.TCPSite(runner, "127.0.0.1", "8080")
+        log("Runner Setup", logging.INFO)
+        self.site = web.TCPSite(runner, "localhost", 8080)
         await self.site.start()
+        log("Site Started", logging.INFO)
         for channel in CHANNELS:
-            await self.subscribe(channel)
+            await self.subscribe(CHANNELS[channel])
+            log(f"Run Subscribe To {channel}", logging.INFO)
 
 
 main()
