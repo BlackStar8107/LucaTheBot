@@ -5,3 +5,4 @@ dotenv
 pyngrok
 disnake
 aiosqlite
+zendriver

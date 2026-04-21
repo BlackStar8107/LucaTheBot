@@ -3,6 +3,7 @@ from aiohttp import web, ClientSession
 from dotenv import load_dotenv
 from pyngrok import ngrok
 from disnake import Webhook
+import AutoLike
 
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ CHANNELS = {
 BOT_NAME = "LucaTheBot"
 BOT_IMAGE = "https://cdn.discordapp.com/icons/656070244321984532/fcfd0a039781de6bd1db261d3cb8b225.webp?size=80&quality=lossless"
 USE_LOCAL_DB = True
+USE_AUTO_LIKE= True
 
 
 def log(message, level):
@@ -201,6 +203,9 @@ class NewVideoHandler():
                             await webhook.send(content = "@everyone\nNew Upload From {0}!\t{3}\n{1}\n{2}".format(video_data["channel_name"], video_data["title"], video_data["video_url"], video_data["date_published"]), username = BOT_NAME, avatar_url = BOT_IMAGE)
                     else:
                         log("Data Already In Memory!", logging.INFO)
+                
+                if USE_AUTO_LIKE:
+                    await AutoLike.likeTheVideoV2(video_data["video_url"])
                 return web.Response(status=200)
         
         app = web.Application(logger=logger)
